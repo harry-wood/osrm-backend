@@ -91,7 +91,7 @@ template <typename RandIt> RandIt filterViaCandidatesByUniqueNodeIds(RandIt firs
 // Filters candidates which are on un-important roads.
 // Returns an iterator to the filtered range's new end.
 template <typename RandIt>
-RandIt filterViaCandidatesByRoadImportance(RandIt first, RandIt last, const Facade &facade)
+RandIt filterViaCandidatesByRoadImportanceHeuristic(RandIt first, RandIt last, const Facade &facade)
 {
     util::static_assert_iter_category<RandIt, std::random_access_iterator_tag>();
     util::static_assert_iter_value<RandIt, WeightedViaNode>();
@@ -113,7 +113,7 @@ RandIt filterViaCandidatesByRoadImportance(RandIt first, RandIt last, const Faca
 // Filters candidates with much higher weight than the primary route. Mutates range in-place.
 // Returns an iterator to the filtered range's new end.
 template <typename RandIt>
-RandIt filterViaCandidatesByStretch(RandIt first, RandIt last, EdgeWeight weight)
+RandIt filterViaCandidatesByStretchHeuristic(RandIt first, RandIt last, EdgeWeight weight)
 {
     util::static_assert_iter_category<RandIt, std::random_access_iterator_tag>();
     util::static_assert_iter_value<RandIt, WeightedViaNode>();
@@ -136,9 +136,9 @@ RandIt filterViaCandidatesByStretch(RandIt first, RandIt last, EdgeWeight weight
 }
 
 // The packed paths' sharing in [0, 1] for no sharing and equality, respectively.
-inline double normalizedPackedPathSharing(const Partition &partition,
-                                          const PackedPath &lhs,
-                                          const PackedPath &rhs)
+inline double normalizedPackedPathSharingHeuristic(const Partition &partition,
+                                                   const PackedPath &lhs,
+                                                   const PackedPath &rhs)
 {
     if (lhs.empty() || rhs.empty())
         return 0.;
@@ -193,16 +193,18 @@ inline double normalizedPackedPathSharing(const Partition &partition,
 // Filters packed paths with similar cells compared to the primary route. Mutates range in-place.
 // Returns an iterator to the filtered range's new end.
 template <typename RandIt>
-RandIt filterPackedPathsByCellSharing(const WeightedViaNodePackedPath &path,
-                                      const Partition &partition,
-                                      RandIt first,
-                                      RandIt last)
+RandIt filterPackedPathsByCellSharingHeuristic(const WeightedViaNodePackedPath &path,
+                                               const Partition &partition,
+                                               RandIt first,
+                                               RandIt last)
 {
     util::static_assert_iter_category<RandIt, std::random_access_iterator_tag>();
     util::static_assert_iter_value<RandIt, WeightedViaNodePackedPath>();
 
     const auto over_sharing_limit = [&](const auto &packed) {
-        return normalizedPackedPathSharing(partition, path.path, packed.path) > kAtLeastDifferentBy;
+        const auto sharing =
+            normalizedPackedPathSharingHeuristic(partition, path.path, packed.path);
+        return sharing > kAtLeastDifferentBy;
     };
 
     return std::remove_if(first, last, over_sharing_limit);
@@ -211,11 +213,11 @@ RandIt filterPackedPathsByCellSharing(const WeightedViaNodePackedPath &path,
 // Filters packed paths based on local optimality. Mutates range in-place.
 // Returns an iterator to the filtered range's new end.
 template <typename RandIt>
-RandIt filterPackedPathsByLocalOptimality(const WeightedViaNodePackedPath &path,
-                                          const Heap &forward_heap,
-                                          const Heap &reverse_heap,
-                                          RandIt first,
-                                          RandIt last)
+RandIt filterPackedPathsByLocalOptimalityHeuristic(const WeightedViaNodePackedPath &path,
+                                                   const Heap &forward_heap,
+                                                   const Heap &reverse_heap,
+                                                   RandIt first,
+                                                   RandIt last)
 {
     util::static_assert_iter_category<RandIt, std::random_access_iterator_tag>();
     util::static_assert_iter_value<RandIt, WeightedViaNodePackedPath>();
@@ -566,8 +568,8 @@ alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
     auto it = end(candidate_vias);
 
     it = filterViaCandidatesByUniqueNodeIds(begin(candidate_vias), it);
-    it = filterViaCandidatesByRoadImportance(begin(candidate_vias), it, facade);
-    it = filterViaCandidatesByStretch(begin(candidate_vias), it, shortest_path_weight);
+    it = filterViaCandidatesByRoadImportanceHeuristic(begin(candidate_vias), it, facade);
+    it = filterViaCandidatesByStretchHeuristic(begin(candidate_vias), it, shortest_path_weight);
 
     // Pre-rank by weight; sharing filtering below then discards by similarity.
     std::sort(begin(candidate_vias), it, [](const auto lhs, const auto rhs) {
@@ -605,11 +607,12 @@ alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
 
     auto alternative_paths_last = end(weighted_packed_paths);
 
-    alternative_paths_last = filterPackedPathsByLocalOptimality(weighted_packed_paths[0],
-                                                                forward_heap, // paths for s, via
-                                                                reverse_heap, // paths for via, t
-                                                                begin(weighted_packed_paths) + 1,
-                                                                alternative_paths_last);
+    alternative_paths_last =
+        filterPackedPathsByLocalOptimalityHeuristic(weighted_packed_paths[0],
+                                                    forward_heap, // paths for s, via
+                                                    reverse_heap, // paths for via, t
+                                                    begin(weighted_packed_paths) + 1,
+                                                    alternative_paths_last);
 
     const auto number_of_alternative_paths =
         alternative_paths_last - (begin(weighted_packed_paths) + 1);
@@ -625,10 +628,10 @@ alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
         for (std::size_t j = 0; j < i; ++j)
         {
             alternative_paths_last =
-                filterPackedPathsByCellSharing(weighted_packed_paths[j],
-                                               partition,
-                                               begin(weighted_packed_paths) + i,
-                                               alternative_paths_last);
+                filterPackedPathsByCellSharingHeuristic(weighted_packed_paths[j],
+                                                        partition,
+                                                        begin(weighted_packed_paths) + i,
+                                                        alternative_paths_last);
         }
     }
 
