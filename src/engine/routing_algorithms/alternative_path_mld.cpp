@@ -370,17 +370,19 @@ RandIt filterPackedPathsByLocalOptimality(const WeightedViaNodePackedPath &path,
 }
 
 // The unpacked paths' sharing in [0, 1] for no sharing and equality, respectively.
-inline double normalizedUnpackedPathSharing(const UnpackedNodes &lhs, const UnpackedNodes &rhs)
+inline double normalizedUnpackedPathSharing(const UnpackedEdges &lhs, const UnpackedEdges &rhs)
 {
     if (lhs.empty() || rhs.empty())
         return 0.;
 
-    // Todo: stack alloc?
-    std::vector<NodeID> lhs_nodes{begin(lhs), end(lhs)};
-    std::vector<NodeID> rhs_nodes{begin(rhs), end(rhs)};
+    // Todo: do we need to scale sharing with edge weights? Keep in mind the weight penalties.
 
-    std::sort(begin(lhs_nodes), end(lhs_nodes));
-    std::sort(begin(rhs_nodes), end(rhs_nodes));
+    // Todo: stack alloc?
+    std::vector<EdgeID> lhs_edges{begin(lhs), end(lhs)};
+    std::vector<EdgeID> rhs_edges{begin(rhs), end(rhs)};
+
+    std::sort(begin(lhs_edges), end(lhs_edges));
+    std::sort(begin(rhs_edges), end(rhs_edges));
 
     std::size_t num_different = 0;
 
@@ -388,14 +390,12 @@ inline double normalizedUnpackedPathSharing(const UnpackedNodes &lhs, const Unpa
     auto out = boost::make_function_output_iterator(
         std::function<void(NodeID)>([&](auto) { num_different += 1; }));
 
-    std::set_difference(begin(lhs_nodes), end(lhs_nodes), begin(rhs_nodes), end(rhs_nodes), out);
+    std::set_difference(begin(lhs_edges), end(lhs_edges), begin(rhs_edges), end(rhs_edges), out);
 
     const auto difference = static_cast<double>(num_different) / lhs.size();
 
     BOOST_ASSERT(difference >= 0.);
     BOOST_ASSERT(difference <= 1.);
-
-    // Todo: do we need to scale sharing with edge weights in some sort?
 
     return 1. - difference;
 }
@@ -410,7 +410,7 @@ filterUnpackedPathsBySharing(const WeightedViaNodeUnpackedPath &path, RandIt fir
     util::static_assert_iter_value<RandIt, WeightedViaNodeUnpackedPath>();
 
     const auto over_sharing_limit = [&](const auto &unpacked) {
-        return normalizedUnpackedPathSharing(path.nodes, unpacked.nodes) > kGamma;
+        return normalizedUnpackedPathSharing(path.edges, unpacked.edges) > kGamma;
     };
 
     return std::remove_if(first, last, over_sharing_limit);
