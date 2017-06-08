@@ -251,7 +251,11 @@ void Sol2ScriptingEnvironment::InitContext(LuaScriptingContext &context)
         "force_split_edges",
         &ProfileProperties::force_split_edges,
         "call_tagless_node_function",
-        &ProfileProperties::call_tagless_node_function);
+        &ProfileProperties::call_tagless_node_function,
+        "max_number_of_alternatives",
+        &ProfileProperties::max_number_of_alternatives,
+        "max_number_of_alternatives_to_unpack",
+        &ProfileProperties::max_number_of_alternatives_to_unpack);
 
     context.state.new_usertype<std::vector<std::string>>(
         "vector",

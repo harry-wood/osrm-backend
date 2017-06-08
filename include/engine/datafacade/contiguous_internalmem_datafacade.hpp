@@ -825,6 +825,16 @@ class ContiguousInternalMemoryDataFacadeBase : public BaseDataFacade
         return m_profile_properties->max_speed_for_map_matching;
     }
 
+    std::size_t GetMaxNumberOfAlternatives() const override
+    {
+        return m_profile_properties->max_number_of_alternatives;
+    }
+
+    std::size_t GetMaxNumberOfAlternativesToUnpack() const override
+    {
+        return m_profile_properties->max_number_of_alternatives_to_unpack;
+    }
+
     const char *GetWeightName() const override final { return m_profile_properties->weight_name; }
 
     unsigned GetWeightPrecision() const override final

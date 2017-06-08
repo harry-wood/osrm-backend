@@ -164,6 +164,9 @@ class BaseDataFacade
 
     virtual double GetMapMatchingMaxSpeed() const = 0;
 
+    virtual std::size_t GetMaxNumberOfAlternatives() const = 0;
+    virtual std::size_t GetMaxNumberOfAlternativesToUnpack() const = 0;
+
     virtual const char *GetWeightName() const = 0;
 
     virtual unsigned GetWeightPrecision() const = 0;

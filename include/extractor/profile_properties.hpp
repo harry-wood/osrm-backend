@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <boost/assert.hpp>
 #include <boost/numeric/conversion/cast.hpp>
+#include <cstdint>
 
 namespace osrm
 {
@@ -21,8 +22,8 @@ struct ProfileProperties
     ProfileProperties()
         : traffic_signal_penalty(0), u_turn_penalty(0),
           max_speed_for_map_matching(DEFAULT_MAX_SPEED), continue_straight_at_waypoint(true),
-          use_turn_restrictions(false), left_hand_driving(false), fallback_to_duration(true),
-          weight_name{"duration"}, call_tagless_node_function(true)
+          use_turn_restrictions(false), left_hand_driving(false),
+          fallback_to_duration(true), weight_name{"duration"}, call_tagless_node_function(true)
     {
         BOOST_ASSERT(weight_name[MAX_WEIGHT_NAME_LENGTH] == '\0');
     }
@@ -88,8 +89,12 @@ struct ProfileProperties
     char weight_name[MAX_WEIGHT_NAME_LENGTH + 1];
     unsigned weight_precision = 1;
     bool force_split_edges = false;
-
     bool call_tagless_node_function = true;
+
+    // Maximum number of alternative paths to return.
+    std::size_t max_number_of_alternatives = 3;
+    // Maximum number of alternative paths to unpack and run high-quality checks on.
+    std::size_t max_number_of_alternatives_to_unpack = 15;
 };
 }
 }

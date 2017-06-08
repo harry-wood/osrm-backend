@@ -40,22 +40,15 @@ namespace
 // Alternative paths candidate via nodes are taken from overlapping search spaces.
 // Overlapping by a third guarantees us taking candidate nodes "from the middle".
 const constexpr auto kSearchSpaceOverlapFactor = 1.66;
-// Maximum number of alternative paths to return.
-const constexpr auto kMaxAlternatives = 3;
-// Maximum number of alternative paths to unpack and run high-quality checks on.
-// Unpack up to five times more pre-filtered paths than the user wants.
-// Note: this knob tunes how many unpacked paths go through high-quality filtering.
-// Set lower for higher performance but alternatives of lower quality.
-const constexpr auto kMaxAlternativesToUnpack = kMaxAlternatives * 5;
 // Alternative paths length requirement (stretch).
 // At most 25% longer then the shortest path.
-const constexpr auto kEpsilon = 0.25;
+const constexpr auto kAtMostLongerBy = 0.25;
 // Alternative paths similarity requirement (sharing).
 // At least 15% different than the shortest path.
-const constexpr auto kGamma = 0.85;
+const constexpr auto kAtLeastDifferentBy = 0.85;
 // Alternative paths are still reasonable around the via node candidate (local optimality).
 // At least optimal around 10% sub-paths around the via node candidate.
-const /*constexpr*/ auto kAlpha = 0.10;
+const constexpr auto kAtLeastOptimalAroundViaBy = 0.10;
 // Note: ^ ICEs gcc 7.1, just leave it out for better times
 
 // Represents a via middle node where forward (from s) and backward (from t)
@@ -133,7 +126,7 @@ RandIt filterViaCandidatesByStretch(RandIt first, RandIt last, EdgeWeight weight
     // We only have generic weights here and no durations without unpacking.
     // How do we scale the epsilon in a setup where users can pass us anything as weight?
 
-    const auto stretch_weight_limit = (1. + kEpsilon) * weight;
+    const auto stretch_weight_limit = (1. + kAtMostLongerBy) * weight;
 
     const auto over_weight_limit = [=](const auto via) {
         return via.weight > stretch_weight_limit;
@@ -209,7 +202,7 @@ RandIt filterPackedPathsByCellSharing(const WeightedViaNodePackedPath &path,
     util::static_assert_iter_value<RandIt, WeightedViaNodePackedPath>();
 
     const auto over_sharing_limit = [&](const auto &packed) {
-        return normalizedPackedPathSharing(partition, path.path, packed.path) > kGamma;
+        return normalizedPackedPathSharing(partition, path.path, packed.path) > kAtLeastDifferentBy;
     };
 
     return std::remove_if(first, last, over_sharing_limit);
@@ -239,7 +232,7 @@ RandIt filterPackedPathsByLocalOptimality(const WeightedViaNodePackedPath &path,
 
     BOOST_ASSERT(path.via.weight != INVALID_EDGE_WEIGHT);
 
-    const EdgeWeight threshold = kAlpha * path.via.weight;
+    const EdgeWeight threshold = kAtLeastOptimalAroundViaBy * path.via.weight;
     (void)threshold; // Todo: use; see below
 
     const auto is_not_locally_optimal = [&](const auto &packed) {
@@ -410,7 +403,7 @@ filterUnpackedPathsBySharing(const WeightedViaNodeUnpackedPath &path, RandIt fir
     util::static_assert_iter_value<RandIt, WeightedViaNodeUnpackedPath>();
 
     const auto over_sharing_limit = [&](const auto &unpacked) {
-        return normalizedUnpackedPathSharing(path.edges, unpacked.edges) > kGamma;
+        return normalizedUnpackedPathSharing(path.edges, unpacked.edges) > kAtLeastDifferentBy;
     };
 
     return std::remove_if(first, last, over_sharing_limit);
@@ -437,6 +430,11 @@ alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
                       const datafacade::ContiguousInternalMemoryDataFacade<Algorithm> &facade,
                       const PhantomNodes &phantom_node_pair)
 {
+    const auto max_number_of_alternatives = facade.GetMaxNumberOfAlternatives();
+    const auto max_number_of_alternatives_to_unpack = facade.GetMaxNumberOfAlternativesToUnpack();
+    BOOST_ASSERT(max_number_of_alternatives > 0);
+    BOOST_ASSERT(max_number_of_alternatives_to_unpack >= max_number_of_alternatives);
+
     const Partition &partition = facade.GetMultiLevelPartition();
 
     search_engine_data.InitializeOrClearFirstThreadLocalStorage(facade.GetNumberOfNodes());
@@ -619,7 +617,7 @@ alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
     // Todo: refactor - this is ugly af
 
     auto number_of_filtered_alternative_paths =
-        std::min(static_cast<std::size_t>(kMaxAlternativesToUnpack),
+        std::min(static_cast<std::size_t>(max_number_of_alternatives_to_unpack),
                  static_cast<std::size_t>(number_of_alternative_paths));
 
     for (std::size_t i = 1; i < number_of_filtered_alternative_paths; ++i)
@@ -635,7 +633,7 @@ alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
     }
 
     number_of_filtered_alternative_paths = std::min(
-        static_cast<std::size_t>(kMaxAlternativesToUnpack),
+        static_cast<std::size_t>(max_number_of_alternatives_to_unpack),
         static_cast<std::size_t>(alternative_paths_last - (begin(weighted_packed_paths) + 1)));
 
     // ^ refactor
@@ -757,7 +755,7 @@ alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
 
     const auto unpacked_paths_first = begin(unpacked_paths);
     const auto number_of_unpacked_paths =
-        std::min(static_cast<std::size_t>(kMaxAlternatives) + 1,
+        std::min(static_cast<std::size_t>(max_number_of_alternatives) + 1,
                  static_cast<std::size_t>(unpacked_paths_last - unpacked_paths_first));
 
     unpacked_paths_last = unpacked_paths_first + number_of_unpacked_paths;

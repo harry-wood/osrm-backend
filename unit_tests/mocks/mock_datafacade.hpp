@@ -205,6 +205,8 @@ class MockBaseDataFacade : public engine::datafacade::BaseDataFacade
     std::string GetTimestamp() const override { return ""; }
     bool GetContinueStraightDefault() const override { return true; }
     double GetMapMatchingMaxSpeed() const override { return 180 / 3.6; }
+    std::size_t GetMaxNumberOfAlternatives() const override { return 1; }
+    std::size_t GetMaxNumberOfAlternativesToUnpack() const override { return 3; }
     const char *GetWeightName() const override final { return "duration"; }
     unsigned GetWeightPrecision() const override final { return 1; }
     double GetWeightMultiplier() const override final { return 10.; }
