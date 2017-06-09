@@ -383,7 +383,7 @@ inline double normalizedUnpackedPathSharing(const UnpackedEdges &lhs, const Unpa
 
     // Needs to be wrapped in std::function for Windows compiler bug
     auto out = boost::make_function_output_iterator(
-        std::function<void(NodeID)>([&](auto) { num_different += 1; }));
+        std::function<void(EdgeID)>([&](auto) { num_different += 1; }));
 
     std::set_difference(begin(lhs_edges), end(lhs_edges), begin(rhs_edges), end(rhs_edges), out);
 
@@ -411,6 +411,116 @@ filterUnpackedPathsBySharing(const WeightedViaNodeUnpackedPath &path, RandIt fir
     return std::remove_if(first, last, over_sharing_limit);
 }
 
+// Unpacks a range of WeightedViaNodePackedPaths into a range of WeightedViaNodeUnpackedPaths.
+// Note: destroys search engine heaps for recursive unpacking. Extract heap data you need before.
+template <typename InputIt, typename OutIt>
+void unpackPackedPaths(InputIt first,
+                       InputIt last,
+                       OutIt out,
+                       SearchEngineData<Algorithm> &search_engine_data,
+                       const Facade &facade,
+                       const PhantomNodes &phantom_node_pair)
+{
+    util::static_assert_iter_category<InputIt, std::input_iterator_tag>();
+    util::static_assert_iter_category<OutIt, std::output_iterator_tag>();
+    util::static_assert_iter_value<InputIt, WeightedViaNodePackedPath>();
+
+    const bool force_loop_forward = needsLoopForward(phantom_node_pair);
+    const bool force_loop_backward = needsLoopBackwards(phantom_node_pair);
+
+    const Partition &partition = facade.GetMultiLevelPartition();
+
+    Heap &forward_heap = *search_engine_data.forward_heap_1;
+    Heap &reverse_heap = *search_engine_data.reverse_heap_1;
+
+    for (auto it = first; it != last; ++it, ++out)
+    {
+        const auto packed_path_weight = it->via.weight;
+        const auto packed_path_via = it->via.node;
+
+        const auto &packed_path = it->path;
+
+        //
+        // Todo: dup. code with mld::search except for level entry: we run a slight mld::search
+        //       adaption here and then dispatch to mld::search for recursively descending down.
+        //
+
+        std::vector<NodeID> unpacked_nodes;
+        std::vector<EdgeID> unpacked_edges;
+        unpacked_nodes.reserve(packed_path.size());
+        unpacked_edges.reserve(packed_path.size());
+
+        // Beware the edge case when start, via, end are all the same.
+        // In this case we return a single node, no edges. We also don't unpack.
+        if (packed_path.empty())
+        {
+            const auto source_node = packed_path_via;
+            unpacked_nodes.push_back(source_node);
+        }
+        else
+        {
+            const auto source_node = std::get<0>(packed_path.front());
+            unpacked_nodes.push_back(source_node);
+        }
+
+        for (auto const &packed_edge : packed_path)
+        {
+            NodeID source, target;
+            bool overlay_edge;
+            std::tie(source, target, overlay_edge) = packed_edge;
+            if (!overlay_edge)
+            { // a base graph edge
+                unpacked_nodes.push_back(target);
+                unpacked_edges.push_back(facade.FindEdge(source, target));
+            }
+            else
+            { // an overlay graph edge
+                LevelID level = getNodeQueryLevel(partition, source, phantom_node_pair); // XXX
+                CellID parent_cell_id = partition.GetCell(level, source);
+                BOOST_ASSERT(parent_cell_id == partition.GetCell(level, target));
+
+                LevelID sublevel = level - 1;
+
+                // Here heaps can be reused, let's go deeper!
+                forward_heap.Clear();
+                reverse_heap.Clear();
+                forward_heap.Insert(source, 0, {source});
+                reverse_heap.Insert(target, 0, {target});
+
+                // TODO: when structured bindings will be allowed change to
+                // auto [subpath_weight, subpath_source, subpath_target, subpath] = ...
+                EdgeWeight subpath_weight;
+                std::vector<NodeID> subpath_nodes;
+                std::vector<EdgeID> subpath_edges;
+                std::tie(subpath_weight, subpath_nodes, subpath_edges) = search(search_engine_data,
+                                                                                facade,
+                                                                                forward_heap,
+                                                                                reverse_heap,
+                                                                                force_loop_forward,
+                                                                                force_loop_backward,
+                                                                                INVALID_EDGE_WEIGHT,
+                                                                                sublevel,
+                                                                                parent_cell_id);
+                BOOST_ASSERT(!subpath_edges.empty());
+                BOOST_ASSERT(subpath_nodes.size() > 1);
+                BOOST_ASSERT(subpath_nodes.front() == source);
+                BOOST_ASSERT(subpath_nodes.back() == target);
+                unpacked_nodes.insert(
+                    unpacked_nodes.end(), std::next(subpath_nodes.begin()), subpath_nodes.end());
+                unpacked_edges.insert(
+                    unpacked_edges.end(), subpath_edges.begin(), subpath_edges.end());
+            }
+        }
+
+        WeightedViaNodeUnpackedPath unpacked_path{
+            WeightedViaNode{packed_path_via, packed_path_weight},
+            std::move(unpacked_nodes),
+            std::move(unpacked_edges)};
+
+        out = std::move(unpacked_path);
+    }
+}
+
 } // anon. ns
 
 // Alternative Routes for MLD.
@@ -427,10 +537,9 @@ filterUnpackedPathsBySharing(const WeightedViaNodeUnpackedPath &path, RandIt fir
 //   Prune based on vertex cell id
 //
 // https://github.com/Project-OSRM/osrm-backend/issues/3905
-InternalManyRoutesResult
-alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
-                      const datafacade::ContiguousInternalMemoryDataFacade<Algorithm> &facade,
-                      const PhantomNodes &phantom_node_pair)
+InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
+                                               const Facade &facade,
+                                               const PhantomNodes &phantom_node_pair)
 {
     const auto max_number_of_alternatives = facade.GetMaxNumberOfAlternatives();
     const auto max_number_of_alternatives_to_unpack = facade.GetMaxNumberOfAlternativesToUnpack();
@@ -645,98 +754,18 @@ alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
     const auto paths_last = begin(weighted_packed_paths) + 1 + number_of_filtered_alternative_paths;
     const auto number_of_packed_paths = paths_last - paths_first;
 
-    // Todo: pick x times more paths to unpack here than the user requested.
     // Todo: benchmark how many packed paths we can unnpack in our time budget.
 
     std::vector<WeightedViaNodeUnpackedPath> unpacked_paths;
     unpacked_paths.reserve(number_of_packed_paths);
 
-    for (auto it = paths_first; it != paths_last; ++it)
-    {
-        const auto packed_path_weight = it->via.weight;
-        const auto packed_path_via = it->via.node;
-
-        const auto &packed_path = it->path;
-
-        //
-        // Todo: dup. code with mld::search except for level entry: we run a slight mld::search
-        //       adaption here and then dispatch to mld::search for recursively descending down.
-        //
-
-        std::vector<NodeID> unpacked_nodes;
-        std::vector<EdgeID> unpacked_edges;
-        unpacked_nodes.reserve(packed_path.size());
-        unpacked_edges.reserve(packed_path.size());
-
-        // Beware the edge case when start, via, end are all the same.
-        // In this case we return a single node, no edges. We also don't unpack.
-        if (packed_path.empty())
-        {
-            const auto source_node = packed_path_via;
-            unpacked_nodes.push_back(source_node);
-        }
-        else
-        {
-            const auto source_node = std::get<0>(packed_path.front());
-            unpacked_nodes.push_back(source_node);
-        }
-
-        for (auto const &packed_edge : packed_path)
-        {
-            NodeID source, target;
-            bool overlay_edge;
-            std::tie(source, target, overlay_edge) = packed_edge;
-            if (!overlay_edge)
-            { // a base graph edge
-                unpacked_nodes.push_back(target);
-                unpacked_edges.push_back(facade.FindEdge(source, target));
-            }
-            else
-            { // an overlay graph edge
-                LevelID level = getNodeQueryLevel(partition, source, phantom_node_pair); // XXX
-                CellID parent_cell_id = partition.GetCell(level, source);
-                BOOST_ASSERT(parent_cell_id == partition.GetCell(level, target));
-
-                LevelID sublevel = level - 1;
-
-                // Here heaps can be reused, let's go deeper!
-                forward_heap.Clear();
-                reverse_heap.Clear();
-                forward_heap.Insert(source, 0, {source});
-                reverse_heap.Insert(target, 0, {target});
-
-                // TODO: when structured bindings will be allowed change to
-                // auto [subpath_weight, subpath_source, subpath_target, subpath] = ...
-                EdgeWeight subpath_weight;
-                std::vector<NodeID> subpath_nodes;
-                std::vector<EdgeID> subpath_edges;
-                std::tie(subpath_weight, subpath_nodes, subpath_edges) = search(search_engine_data,
-                                                                                facade,
-                                                                                forward_heap,
-                                                                                reverse_heap,
-                                                                                force_loop_forward,
-                                                                                force_loop_backward,
-                                                                                INVALID_EDGE_WEIGHT,
-                                                                                sublevel,
-                                                                                parent_cell_id);
-                BOOST_ASSERT(!subpath_edges.empty());
-                BOOST_ASSERT(subpath_nodes.size() > 1);
-                BOOST_ASSERT(subpath_nodes.front() == source);
-                BOOST_ASSERT(subpath_nodes.back() == target);
-                unpacked_nodes.insert(
-                    unpacked_nodes.end(), std::next(subpath_nodes.begin()), subpath_nodes.end());
-                unpacked_edges.insert(
-                    unpacked_edges.end(), subpath_edges.begin(), subpath_edges.end());
-            }
-        }
-
-        WeightedViaNodeUnpackedPath unpacked_path{
-            WeightedViaNode{packed_path_via, packed_path_weight},
-            std::move(unpacked_nodes),
-            std::move(unpacked_edges)};
-
-        unpacked_paths.push_back(std::move(unpacked_path));
-    }
+    // Note: re-uses (read: destroys) heaps; we don't need them from here on anyway.
+    unpackPackedPaths(paths_first,
+                      paths_last,
+                      std::back_inserter(unpacked_paths),
+                      search_engine_data,
+                      facade,
+                      phantom_node_pair);
 
     //
     // Filter and rank a second time. This time instead of being fast and doing
