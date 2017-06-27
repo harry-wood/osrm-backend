@@ -559,7 +559,6 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
 
     // The single via node in the shortest paths s,via and via,t sub-paths and
     // the weight for the shortest path s,t we return and compare alternatives to.
-    NodeID shortest_path_via = SPECIAL_NODEID;
     EdgeWeight shortest_path_weight = INVALID_EDGE_WEIGHT;
 
     // The current via node during search spaces overlap stepping and an artificial
@@ -613,14 +612,7 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
 
             if (overlap_weight != INVALID_EDGE_WEIGHT && overlap_via != SPECIAL_NODEID)
             {
-                if (shortest_path_via != SPECIAL_NODEID)
-                {
-                    candidate_vias.push_back(WeightedViaNode{overlap_via, overlap_weight});
-                }
-                else
-                {
-                    shortest_path_via = overlap_via;
-                }
+                candidate_vias.push_back(WeightedViaNode{overlap_via, overlap_weight});
             }
         }
 
@@ -645,14 +637,7 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
 
             if (overlap_weight != INVALID_EDGE_WEIGHT && overlap_via != SPECIAL_NODEID)
             {
-                if (shortest_path_via != SPECIAL_NODEID)
-                {
-                    candidate_vias.push_back(WeightedViaNode{overlap_via, overlap_weight});
-                }
-                else
-                {
-                    shortest_path_via = overlap_via;
-                }
+                candidate_vias.push_back(WeightedViaNode{overlap_via, overlap_weight});
             }
         }
 
@@ -660,12 +645,19 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
         shortest_path_weight = std::min(shortest_path_weight, overlap_weight);
     }
 
-    const bool has_valid_shortest_path_weight = shortest_path_weight != INVALID_EDGE_WEIGHT;
-    const bool has_valid_shortest_path_via = shortest_path_via != SPECIAL_NODEID;
-    const bool has_shortest_path = has_valid_shortest_path_weight && has_valid_shortest_path_via;
+    auto shortest_path_via_it =
+        std::min_element(begin(candidate_vias),
+                         end(candidate_vias),
+                         [](const auto &lhs, const auto &rhs) { return lhs.weight < rhs.weight; });
+
+    const auto has_shortest_path = shortest_path_via_it != end(candidate_vias) &&
+                                   shortest_path_via_it->weight != INVALID_EDGE_WEIGHT;
 
     if (!has_shortest_path)
         return InternalManyRoutesResult{};
+
+    NodeID shortest_path_via = shortest_path_via_it->node;
+    BOOST_ASSERT(shortest_path_weight == shortest_path_via_it->weight);
 
     std::cout << ">>> shortest path weight: " << shortest_path_weight << std::endl;
     std::cout << ">>> number of candidates: " << candidate_vias.size() << std::endl;
