@@ -59,6 +59,20 @@ struct InternalRouteResult
     {
         return (leg != unpacked_path_segments.size() - 1);
     }
+
+    // Note: this is the accumulated duration without turn penalties factored in.
+    // We already have the duration attached to edges and it may be good enough
+    // for heuristics based on way durations (e.g. used in the mld alternatives).
+    EdgeWeight duration_without_turns() const
+    {
+        EdgeWeight ret{0};
+
+        for (const auto &leg : unpacked_path_segments)
+            for (const auto &segment : leg)
+                ret += segment.duration_until_turn;
+
+        return ret;
+    }
 };
 
 struct InternalManyRoutesResult

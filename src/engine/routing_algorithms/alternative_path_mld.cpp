@@ -49,7 +49,6 @@ const constexpr auto kAtLeastDifferentBy = 0.85;
 // Alternative paths are still reasonable around the via node candidate (local optimality).
 // At least optimal around 10% sub-paths around the via node candidate.
 const constexpr auto kAtLeastOptimalAroundViaBy = 0.10;
-// Note: ^ ICEs gcc 7.1, just leave it out for better times
 
 // Represents a via middle node where forward (from s) and backward (from t)
 // search spaces overlap and the weight a path (made up of s,via and via,t) has.
@@ -659,9 +658,6 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
     NodeID shortest_path_via = shortest_path_via_it->node;
     BOOST_ASSERT(shortest_path_weight == shortest_path_via_it->weight);
 
-    std::cout << ">>> shortest path weight: " << shortest_path_weight << std::endl;
-    std::cout << ">>> number of candidates: " << candidate_vias.size() << std::endl;
-
     // Filters via candidate nodes with heuristics
 
     // Note: filter pipeline below only makes range smaller; no need to erase items
@@ -681,8 +677,6 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
     const auto first = begin(candidate_vias);
     const auto last = it;
     const auto number_of_candidate_vias = last - first;
-
-    std::cout << ">>> number of filtered candidates: " << number_of_candidate_vias << std::endl;
 
     // Reconstruct packed paths from the heaps.
     // The recursive path unpacking below destructs heaps.
@@ -795,10 +789,23 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
         return extractRoute(facade, path.via.weight, phantom_node_pair, path.nodes, path.edges);
     };
 
-    std::transform(unpacked_paths_first,
-                   unpacked_paths_last,
-                   std::back_inserter(routes),
-                   unpacked_path_to_route);
+    // Only now that we annotated the alternatives do we have its actual duration. Note: the
+    // weight we used so far abstracts over duration and includes (potentially high) penalties.
+    // Note: see assembleGeometry for distance calculation
+
+    // Shortest Path
+    routes.push_back(unpacked_path_to_route(*unpacked_paths_first));
+
+    for (auto it = std::next(unpacked_paths_first); it != unpacked_paths_last; ++it)
+    {
+        const auto shortest_path_duration = routes.front().duration_without_turns();
+        const auto stretch_duration_limit = (1. + kAtMostLongerBy) * shortest_path_duration;
+
+        auto route = unpacked_path_to_route(*it);
+
+        if (route.duration_without_turns() <= stretch_duration_limit)
+            routes.push_back(std::move(route));
+    }
 
     return InternalManyRoutesResult{std::move(routes)};
 }
