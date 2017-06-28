@@ -520,41 +520,17 @@ void unpackPackedPaths(InputIt first,
     }
 }
 
-} // anon. ns
-
-// Alternative Routes for MLD.
-//
-// Start search from s and continue "for a while" when midd was found. Save all vertices.
-// Start search from t and continue "for a while" when s was found. Save all vertices.
-// Intersect both vertex sets: these are the candidate vertices.
-// For all candidate vertices c a (potentially arbitrarily bad) alternative route is (s, c, t).
-// Apply heuristic to evaluate alternative route based on stretch, overlap, how reasonable it is.
-//
-// For MLD specifically we can pull off some tricks to make evaluating alternatives fast:
-//   Only consider (s, c, t) with c border vertex: re-use MLD search steps.
-//   Add meta data to border vertices: consider (s, c, t) only when c is e.g. on a highway.
-//   Prune based on vertex cell id
-//
-// https://github.com/Project-OSRM/osrm-backend/issues/3905
-InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
+// Generates via candidate nodes from the overlap of the two search spaces from s and t.
+// Returns via node candidates in no particular order; they're not guaranteed to be unique.
+// Note: heaps are modified in-place, after the function returns they're valid and can be used.
+std::vector<WeightedViaNode> makeCandidateVias(SearchEngineData<Algorithm> &search_engine_data,
                                                const Facade &facade,
                                                const PhantomNodes &phantom_node_pair)
 {
-    const auto max_number_of_alternatives = facade.GetMaxNumberOfAlternatives();
-    const auto max_number_of_alternatives_to_unpack = facade.GetMaxNumberOfAlternativesToUnpack();
-    BOOST_ASSERT(max_number_of_alternatives > 0);
-    BOOST_ASSERT(max_number_of_alternatives_to_unpack >= max_number_of_alternatives);
-
-    const Partition &partition = facade.GetMultiLevelPartition();
-
-    search_engine_data.InitializeOrClearFirstThreadLocalStorage(facade.GetNumberOfNodes());
-
     Heap &forward_heap = *search_engine_data.forward_heap_1;
     Heap &reverse_heap = *search_engine_data.reverse_heap_1;
 
     insertNodesInHeaps(forward_heap, reverse_heap, phantom_node_pair);
-
-    // Saves nodes in the forward and backward search space overlap as candidates
 
     // The single via node in the shortest paths s,via and via,t sub-paths and
     // the weight for the shortest path s,t we return and compare alternatives to.
@@ -644,19 +620,58 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
         shortest_path_weight = std::min(shortest_path_weight, overlap_weight);
     }
 
+    return candidate_vias;
+}
+
+} // anon. ns
+
+// Alternative Routes for MLD.
+//
+// Start search from s and continue "for a while" when middle was found. Save vertices.
+// Start search from t and continue "for a while" when middle was found. Save vertices.
+// Intersect both vertex sets: these are the candidate vertices.
+// For all candidate vertices c a (potentially arbitrarily bad) alternative route is (s, c, t).
+// Apply heuristic to evaluate alternative route based on stretch, overlap, how reasonable it is.
+//
+// For MLD specifically we can pull off some tricks to make evaluating alternatives fast:
+//   Only consider (s, c, t) with c border vertex: re-use MLD search steps.
+//   Add meta data to border vertices: consider (s, c, t) only when c is e.g. on a highway.
+//   Prune based on vertex cell id
+//
+// https://github.com/Project-OSRM/osrm-backend/issues/3905
+InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
+                                               const Facade &facade,
+                                               const PhantomNodes &phantom_node_pair)
+{
+    const auto max_number_of_alternatives = facade.GetMaxNumberOfAlternatives();
+    const auto max_number_of_alternatives_to_unpack = facade.GetMaxNumberOfAlternativesToUnpack();
+    BOOST_ASSERT(max_number_of_alternatives > 0);
+    BOOST_ASSERT(max_number_of_alternatives_to_unpack >= max_number_of_alternatives);
+
+    const Partition &partition = facade.GetMultiLevelPartition();
+
+    // Prepare heaps for usage below. The searches will modify them in-place.
+    search_engine_data.InitializeOrClearFirstThreadLocalStorage(facade.GetNumberOfNodes());
+
+    Heap &forward_heap = *search_engine_data.forward_heap_1;
+    Heap &reverse_heap = *search_engine_data.reverse_heap_1;
+
+    // Do forward and backward search, save search space overlap as via candidates.
+    auto candidate_vias = makeCandidateVias(search_engine_data, facade, phantom_node_pair);
+
+    const auto by_weight = [](const auto &lhs, const auto &rhs) { return lhs.weight < rhs.weight; };
     auto shortest_path_via_it =
-        std::min_element(begin(candidate_vias),
-                         end(candidate_vias),
-                         [](const auto &lhs, const auto &rhs) { return lhs.weight < rhs.weight; });
+        std::min_element(begin(candidate_vias), end(candidate_vias), by_weight);
 
     const auto has_shortest_path = shortest_path_via_it != end(candidate_vias) &&
+                                   shortest_path_via_it->node != SPECIAL_NODEID &&
                                    shortest_path_via_it->weight != INVALID_EDGE_WEIGHT;
 
     if (!has_shortest_path)
         return InternalManyRoutesResult{};
 
     NodeID shortest_path_via = shortest_path_via_it->node;
-    BOOST_ASSERT(shortest_path_weight == shortest_path_via_it->weight);
+    EdgeWeight shortest_path_weight = shortest_path_via_it->weight;
 
     // Filters via candidate nodes with heuristics
 
