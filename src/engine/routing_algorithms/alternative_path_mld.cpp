@@ -109,6 +109,39 @@ RandIt filterViaCandidatesByRoadImportanceHeuristic(RandIt first, RandIt last, c
     return last;
 }
 
+// Scale the maximum allowed weight increase based on its magnitude:
+//  - Shortest path 10 minutes, alternative 13 minutes => Factor of 0.30 ok
+//  - Shortest path 10 hours, alternative 13 hours     => Factor of 0.30 unreasonable
+double scaledAtMostLongerByFactorBasedOnDuration(EdgeWeight duration)
+{
+    auto scaledAtMostLongerBy = kAtMostLongerBy;
+
+    // We only have generic weights here and no durations without unpacking.
+    // We also have restricted way penalties which are huge and will screw scaling here.
+    //
+    // Users can pass us generic weights not based on durations; we can't do anything about
+    // it here other than either generating too many or no alternatives in these cases.
+    //
+    // We scale the weights with a step function based on some rough guestimates, so that
+    // they match tens of minutes, in the low hours, tens of hours, etc.
+
+    const constexpr auto minutes = 60.;
+    const constexpr auto hours = 60. * minutes;
+
+    if (duration < EdgeWeight(10 * minutes))
+        scaledAtMostLongerBy *= 1.75;
+    else if (duration < EdgeWeight(30 * minutes))
+        scaledAtMostLongerBy *= 1.50;
+    else if (duration < EdgeWeight(1 * hours))
+        scaledAtMostLongerBy *= 1.25;
+    else if (duration < EdgeWeight(3 * hours))
+        scaledAtMostLongerBy *= 1.00;
+    else if (duration > EdgeWeight(10 * hours))
+        scaledAtMostLongerBy *= 0.50;
+
+    return scaledAtMostLongerBy;
+}
+
 // Filters candidates with much higher weight than the primary route. Mutates range in-place.
 // Returns an iterator to the filtered range's new end.
 template <typename RandIt>
@@ -117,15 +150,11 @@ RandIt filterViaCandidatesByStretchHeuristic(RandIt first, RandIt last, EdgeWeig
     util::static_assert_iter_category<RandIt, std::random_access_iterator_tag>();
     util::static_assert_iter_value<RandIt, WeightedViaNode>();
 
-    // Todo: scale epsilon with weight. Higher epsilon for short routes are reasonable.
-    //
-    //  - shortest path 10 minutes, alternative 13 minutes => 0.30 epsilon Ok
-    //  - shortest path 10 hours, alternative 13 hours     => 0.30 epsilon Unreasonable
-    //
-    // We only have generic weights here and no durations without unpacking.
-    // How do we scale the epsilon in a setup where users can pass us anything as weight?
-
-    const auto stretch_weight_limit = (1. + kAtMostLongerBy) * weight;
+    // Assumes weight roughly corresponds to duration-ish. If this is not the case e.g.
+    // because users are setting weight to be distance in the profiles, then we might
+    // either generate more candidates than we have to or not enough. But is okay.
+    const auto scaledAtMostLongerBy = scaledAtMostLongerByFactorBasedOnDuration(weight);
+    const auto stretch_weight_limit = (1. + scaledAtMostLongerBy) * weight;
 
     const auto over_weight_limit = [=](const auto via) {
         return via.weight > stretch_weight_limit;
@@ -814,7 +843,9 @@ InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &sear
     for (auto it = std::next(unpacked_paths_first); it != unpacked_paths_last; ++it)
     {
         const auto shortest_path_duration = routes.front().duration_without_turns();
-        const auto stretch_duration_limit = (1. + kAtMostLongerBy) * shortest_path_duration;
+        const auto scaledAtMostLongerBy =
+            scaledAtMostLongerByFactorBasedOnDuration(shortest_path_duration);
+        const auto stretch_duration_limit = (1. + scaledAtMostLongerBy) * shortest_path_duration;
 
         auto route = unpacked_path_to_route(*it);
 
