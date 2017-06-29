@@ -565,7 +565,8 @@ bool viaNodeCandidatePassesTTest(
 InternalManyRoutesResult
 alternativePathSearch(SearchEngineData<Algorithm> &engine_working_data,
                       const datafacade::ContiguousInternalMemoryDataFacade<Algorithm> &facade,
-                      const PhantomNodes &phantom_node_pair)
+                      const PhantomNodes &phantom_node_pair,
+                      unsigned /*number_of_alternatives*/)
 {
     InternalRouteResult primary_route;
     InternalRouteResult secondary_route;

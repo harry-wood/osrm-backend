@@ -757,9 +757,12 @@ inline std::vector<EdgeWeight> retrievePackedPathWeightsFromHeap(const Heap &for
 // https://github.com/Project-OSRM/osrm-backend/issues/3905
 InternalManyRoutesResult alternativePathSearch(SearchEngineData<Algorithm> &search_engine_data,
                                                const Facade &facade,
-                                               const PhantomNodes &phantom_node_pair)
+                                               const PhantomNodes &phantom_node_pair,
+                                               unsigned number_of_alternatives)
 {
-    const auto max_number_of_alternatives = facade.GetMaxNumberOfAlternatives();
+    const auto max_number_of_alternatives =
+        std::min(facade.GetMaxNumberOfAlternatives(),               // profile-based upper bound
+                 static_cast<std::size_t>(number_of_alternatives)); // user-requested
     const auto max_number_of_alternatives_to_unpack = facade.GetMaxNumberOfAlternativesToUnpack();
     BOOST_ASSERT(max_number_of_alternatives > 0);
     BOOST_ASSERT(max_number_of_alternatives_to_unpack >= max_number_of_alternatives);

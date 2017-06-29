@@ -20,7 +20,8 @@ class RoutingAlgorithmsInterface
 {
   public:
     virtual InternalManyRoutesResult
-    AlternativePathSearch(const PhantomNodes &phantom_node_pair) const = 0;
+    AlternativePathSearch(const PhantomNodes &phantom_node_pair,
+                          unsigned number_of_alternatives) const = 0;
 
     virtual InternalRouteResult
     ShortestPathSearch(const std::vector<PhantomNodes> &phantom_node_pair,
@@ -66,7 +67,8 @@ template <typename Algorithm> class RoutingAlgorithms final : public RoutingAlgo
     virtual ~RoutingAlgorithms() = default;
 
     InternalManyRoutesResult
-    AlternativePathSearch(const PhantomNodes &phantom_node_pair) const final override;
+    AlternativePathSearch(const PhantomNodes &phantom_node_pair,
+                          unsigned number_of_alternatives) const final override;
 
     InternalRouteResult ShortestPathSearch(
         const std::vector<PhantomNodes> &phantom_node_pair,
@@ -130,9 +132,11 @@ template <typename Algorithm> class RoutingAlgorithms final : public RoutingAlgo
 
 template <typename Algorithm>
 InternalManyRoutesResult
-RoutingAlgorithms<Algorithm>::AlternativePathSearch(const PhantomNodes &phantom_node_pair) const
+RoutingAlgorithms<Algorithm>::AlternativePathSearch(const PhantomNodes &phantom_node_pair,
+                                                    unsigned number_of_alternatives) const
 {
-    return routing_algorithms::alternativePathSearch(heaps, facade, phantom_node_pair);
+    return routing_algorithms::alternativePathSearch(
+        heaps, facade, phantom_node_pair, number_of_alternatives);
 }
 
 template <typename Algorithm>
@@ -189,7 +193,8 @@ inline std::vector<routing_algorithms::TurnData> RoutingAlgorithms<Algorithm>::G
 // CoreCH overrides
 template <>
 InternalManyRoutesResult inline RoutingAlgorithms<
-    routing_algorithms::corech::Algorithm>::AlternativePathSearch(const PhantomNodes &) const
+    routing_algorithms::corech::Algorithm>::AlternativePathSearch(const PhantomNodes &,
+                                                                  unsigned) const
 {
     throw util::exception("AlternativePathSearch is disabled due to performance reasons");
 }
