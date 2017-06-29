@@ -428,6 +428,24 @@ BOOST_AUTO_TEST_CASE(valid_route_urls)
     CHECK_EQUAL_RANGE(reference_18.approaches, result_18->approaches);
     CHECK_EQUAL_RANGE(reference_18.coordinates, result_18->coordinates);
     CHECK_EQUAL_RANGE(reference_18.hints, result_18->hints);
+
+    RouteParameters reference_19{};
+    reference_19.alternatives = true;
+    reference_19.number_of_alternatives = 3;
+    reference_19.coordinates = coords_1;
+    auto result_19 = parseParameters<RouteParameters>("1,2;3,4?alternatives=3");
+    BOOST_CHECK(result_19);
+    BOOST_CHECK_EQUAL(reference_19.steps, result_19->steps);
+    BOOST_CHECK_EQUAL(reference_19.alternatives, result_19->alternatives);
+    BOOST_CHECK_EQUAL(reference_19.geometries, result_19->geometries);
+    BOOST_CHECK_EQUAL(reference_19.annotations, result_19->annotations);
+    BOOST_CHECK_EQUAL(reference_19.overview, result_19->overview);
+    BOOST_CHECK_EQUAL(reference_19.continue_straight, result_19->continue_straight);
+    CHECK_EQUAL_RANGE(reference_19.bearings, result_19->bearings);
+    CHECK_EQUAL_RANGE(reference_19.radiuses, result_19->radiuses);
+    CHECK_EQUAL_RANGE(reference_19.approaches, result_19->approaches);
+    CHECK_EQUAL_RANGE(reference_19.coordinates, result_19->coordinates);
+    CHECK_EQUAL_RANGE(reference_19.hints, result_19->hints);
 }
 
 BOOST_AUTO_TEST_CASE(valid_table_urls)
