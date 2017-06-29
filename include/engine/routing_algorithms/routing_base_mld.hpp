@@ -182,6 +182,7 @@ void routingStep(const datafacade::ContiguousInternalMemoryDataFacade<Algorithm>
                 if (shortcut_weight != INVALID_EDGE_WEIGHT && node != to)
                 {
                     const EdgeWeight to_weight = weight + shortcut_weight;
+                    BOOST_ASSERT(to_weight >= weight);
                     if (!forward_heap.WasInserted(to))
                     {
                         forward_heap.Insert(to, to_weight, {node, true});
@@ -207,6 +208,7 @@ void routingStep(const datafacade::ContiguousInternalMemoryDataFacade<Algorithm>
                 if (shortcut_weight != INVALID_EDGE_WEIGHT && node != to)
                 {
                     const EdgeWeight to_weight = weight + shortcut_weight;
+                    BOOST_ASSERT(to_weight >= weight);
                     if (!forward_heap.WasInserted(to))
                     {
                         forward_heap.Insert(to, to_weight, {node, true});
