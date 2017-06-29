@@ -48,7 +48,8 @@ const constexpr auto kAtMostLongerBy = 0.25;
 const constexpr auto kAtLeastDifferentBy = 0.85;
 // Alternative paths are still reasonable around the via node candidate (local optimality).
 // At least optimal around 10% sub-paths around the via node candidate.
-const constexpr auto kAtLeastOptimalAroundViaBy = 0.10;
+const /*constexpr*/ auto kAtLeastOptimalAroundViaBy = 0.10;
+// gcc 7.1 ICE ^
 
 // Represents a via middle node where forward (from s) and backward (from t)
 // search spaces overlap and the weight a path (made up of s,via and via,t) has.
@@ -166,10 +167,10 @@ RandIt filterViaCandidatesByStretchHeuristic(RandIt first, RandIt last, EdgeWeig
 
 // The packed paths' sharing in [0, 1] for no sharing and equality, respectively.
 inline double normalizedPackedPathSharingHeuristic(const Partition &partition,
-                                                   const PackedPath &lhs,
-                                                   const PackedPath &rhs)
+                                                   const WeightedViaNodePackedPath &lhs,
+                                                   const WeightedViaNodePackedPath &rhs)
 {
-    if (lhs.empty() || rhs.empty())
+    if (lhs.path.empty() || rhs.path.empty())
         return 0.;
 
     const auto number_of_levels = partition.GetNumberOfLevels();
@@ -183,19 +184,19 @@ inline double normalizedPackedPathSharingHeuristic(const Partition &partition,
     const auto get_cell = [&](auto node) { return partition.GetCell(level, node); };
 
     // Todo: might benefit from stack alloc, we're creating two small vecs everytime here
-    std::vector<CellID> lhs_cells(lhs.size() + 1);
-    std::vector<CellID> rhs_cells(rhs.size() + 1);
+    std::vector<CellID> lhs_cells(lhs.path.size() + 1);
+    std::vector<CellID> rhs_cells(rhs.path.size() + 1);
 
     // Transform edges (from, to) to node ids and then to cell ids for each node id.
 
-    lhs_cells[0] = get_cell(std::get<0>(lhs.front()));
-    rhs_cells[0] = get_cell(std::get<0>(rhs.front()));
+    lhs_cells[0] = get_cell(std::get<0>(lhs.path.front()));
+    rhs_cells[0] = get_cell(std::get<0>(rhs.path.front()));
 
-    for (std::size_t i = 0; i < lhs.size(); ++i)
-        lhs_cells[i + 1] = get_cell(std::get<1>(lhs[i]));
+    for (std::size_t i = 0; i < lhs.path.size(); ++i)
+        lhs_cells[i + 1] = get_cell(std::get<1>(lhs.path[i]));
 
-    for (std::size_t i = 0; i < rhs.size(); ++i)
-        rhs_cells[i + 1] = get_cell(std::get<1>(rhs[i]));
+    for (std::size_t i = 0; i < rhs.path.size(); ++i)
+        rhs_cells[i + 1] = get_cell(std::get<1>(rhs.path[i]));
 
     std::sort(begin(lhs_cells), end(lhs_cells));
     std::sort(begin(rhs_cells), end(rhs_cells));
@@ -211,7 +212,7 @@ inline double normalizedPackedPathSharingHeuristic(const Partition &partition,
 
     std::set_difference(begin(lhs_cells), end(lhs_cells), begin(rhs_cells), end(rhs_cells), out);
 
-    const auto difference = static_cast<double>(num_different) / lhs.size();
+    const auto difference = static_cast<double>(num_different) / lhs.path.size();
 
     BOOST_ASSERT(difference >= 0.);
     BOOST_ASSERT(difference <= 1.);
@@ -231,8 +232,7 @@ RandIt filterPackedPathsByCellSharingHeuristic(const WeightedViaNodePackedPath &
     util::static_assert_iter_value<RandIt, WeightedViaNodePackedPath>();
 
     const auto over_sharing_limit = [&](const auto &packed) {
-        const auto sharing =
-            normalizedPackedPathSharingHeuristic(partition, path.path, packed.path);
+        const auto sharing = normalizedPackedPathSharingHeuristic(partition, path, packed);
         return sharing > kAtLeastDifferentBy;
     };
 
@@ -553,9 +553,10 @@ void unpackPackedPaths(InputIt first,
 // Generates via candidate nodes from the overlap of the two search spaces from s and t.
 // Returns via node candidates in no particular order; they're not guaranteed to be unique.
 // Note: heaps are modified in-place, after the function returns they're valid and can be used.
-std::vector<WeightedViaNode> makeCandidateVias(SearchEngineData<Algorithm> &search_engine_data,
-                                               const Facade &facade,
-                                               const PhantomNodes &phantom_node_pair)
+inline std::vector<WeightedViaNode>
+makeCandidateVias(SearchEngineData<Algorithm> &search_engine_data,
+                  const Facade &facade,
+                  const PhantomNodes &phantom_node_pair)
 {
     Heap &forward_heap = *search_engine_data.forward_heap_1;
     Heap &reverse_heap = *search_engine_data.reverse_heap_1;
@@ -654,10 +655,10 @@ std::vector<WeightedViaNode> makeCandidateVias(SearchEngineData<Algorithm> &sear
 }
 
 // Generates packed path edge weights based on a packed path, its total weight and the heaps.
-std::vector<EdgeWeight> retrievePackedPathWeightsFromHeap(const Heap &forward_heap,
-                                                          const Heap &reverse_heap,
-                                                          const PackedPath &packed_path,
-                                                          const WeightedViaNode via)
+inline std::vector<EdgeWeight> retrievePackedPathWeightsFromHeap(const Heap &forward_heap,
+                                                                 const Heap &reverse_heap,
+                                                                 const PackedPath &packed_path,
+                                                                 const WeightedViaNode via)
 {
     BOOST_ASSERT(!packed_path.empty());
 
