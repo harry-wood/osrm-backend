@@ -30,9 +30,10 @@ struct RouteParametersGrammar : public BaseParametersGrammar<Iterator, Signature
     {
         route_rule =
             (qi::lit("alternatives=") >
-             qi::uint_[ph::bind(&engine::api::RouteParameters::number_of_alternatives, qi::_r1) =
-                           qi::_1]
-                      [ph::bind(&engine::api::RouteParameters::alternatives, qi::_r1) = true]) |
+             (qi::uint_[ph::bind(&engine::api::RouteParameters::number_of_alternatives, qi::_r1) = qi::_1,
+                        ph::bind(&engine::api::RouteParameters::alternatives, qi::_r1) = qi::_1 > 0] |
+              qi::bool_[ph::bind(&engine::api::RouteParameters::number_of_alternatives, qi::_r1) = qi::_1,
+                        ph::bind(&engine::api::RouteParameters::alternatives, qi::_r1) = qi::_1])) |
             (qi::lit("continue_straight=") >
              (qi::lit("default") |
               qi::bool_[ph::bind(&engine::api::RouteParameters::continue_straight, qi::_r1) =
